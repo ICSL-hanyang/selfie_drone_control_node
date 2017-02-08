@@ -4,22 +4,51 @@
 #include <mavros_msgs/SetMode.h> //offboard 모드 설정용
 #include <mavros_msgs/State.h> //mavros 메세지 활용용
 #include <mavros_msgs/OverrideRCIn.h> //mavros rc 용
-#include "math.h" //수식 입력용
+#include "math.h"
+#include "selfie_drone/imageOffset.h" // msg file
 
+//control signal
 int roll = 1500;
 int pitch= 1500;
 int throttle = 950;
 int yaw = 1500;
+
+//Parameter
 int mode = -1;
 int pre_mode = 0;
-double offset = 0.0;
+
+//P control
+double x_pgain = 1.0;
+double y_pgain = 1.0;
+double y_offset = 0;
 
 mavros_msgs::State selfie_current_state;
+selfie_drone::imageOffset image_current_offset;
 
 void selfie_state_cb(const mavros_msgs::State::ConstPtr& msg){
     selfie_current_state = *msg;
 }
 
+void offset_cb(const selfie_drone::imageOffset::ConstPtr& off_msg){
+    image_current_offset = *off_msg;
+
+    if(abs(image_current_offset.data) > 100){
+    	image_current_offset.data = 0;
+    }
+
+    if(image_current_offset.wid > 250)
+    	image_current_offset.wid = 250;
+    else if(image_current_offset.wid < 50)
+    	image_current_offset.wid = 50;
+
+    if(image_current_offset.hei > 250)
+    	image_current_offset.hei = 250;
+    else if(image_current_offset.hei < 50)
+    	image_current_offset.hei = 50;
+
+    y_offset = sqrt(image_current_offset.wid * image_current_offset.hei) - 150; //150 : target image size
+
+}
 
 int main(int argc, char **argv)
 {
@@ -28,9 +57,10 @@ int main(int argc, char **argv)
     ROS_INFO("Control node executed");
 
     ros::NodeHandle nh;
+    ros::Subscriber offset_sub = nh.subscribe<selfie_drone::imageOffset> ("image_offset", 20, offset_cb);
     ros::Subscriber selfie_state_sub = nh.subscribe<mavros_msgs::State> ("mavros/state", 10, selfie_state_cb);
     ros::Publisher selfie_local_pos_pub = nh.advertise<geometry_msgs::PoseStamped> ("mavros/setpoint_position/local", 10);
-    ros::Publisher selfie_rc_pub = nh.advertise<mavros_msgs::OverrideRCIn> ("mavros/rc/override", 10);
+    //ros::Publisher selfie_rc_pub = nh.advertise<mavros_msgs::OverrideRCIn> ("mavros/rc/override", 10);
     ros::ServiceClient selfie_arming_client = nh.serviceClient<mavros_msgs::CommandBool> ("mavros/cmd/arming");
     ros::ServiceClient selfie_set_mode_client = nh.serviceClient<mavros_msgs::SetMode> ("mavros/set_mode");
 
@@ -94,31 +124,21 @@ int main(int argc, char **argv)
 	        }
 	    }
 	    nh.param("control_node/mode", mode, -1);
-	    nh.param("control_node/mode", offset, 0.0);
+	    //nh.param("control_node/mode", offset, 0.0);
 
 	    if(pre_mode != mode){
 	    	ROS_INFO("Parameter set mode : %d", mode);	
 	    }
-	    
+
 	    if(mode == 0){		
 	    	selfie_pose.pose.position.x = 0;
 		    selfie_pose.pose.position.y = 0;
-		    selfie_pose.pose.position.z = 2;
+		    selfie_pose.pose.position.z = 1.5;
 	    }
 	    else if(mode == 1){
-	    	selfie_pose.pose.position.x = offset;
-		    selfie_pose.pose.position.y = 0;
-		    selfie_pose.pose.position.z = 2;	
-	    }
-	    else if(mode == 2){
-	    	selfie_pose.pose.position.x = 0;
-		    selfie_pose.pose.position.y = offset;
-		    selfie_pose.pose.position.z = 2;	
-	    }
-	    else if(mode == 3){
-	    	selfie_pose.pose.position.x = 0;
-		    selfie_pose.pose.position.y = 0;
-		    selfie_pose.pose.position.z = 2 + offset;	
+	    	selfie_pose.pose.position.x = selfie_pose.pose.position.x + (image_current_offset.data * x_pgain)/100;
+		    selfie_pose.pose.position.y = selfie_pose.pose.position.y - (y_offset * y_pgain)/100;
+		    selfie_pose.pose.position.z = 1.5;	
 	    }
 	    else{
 	    	selfie_pose.pose.position.x = 0;
@@ -134,6 +154,7 @@ int main(int argc, char **argv)
 
         ros::spinOnce();
         rate.sleep();
+        
     }
 	
 	

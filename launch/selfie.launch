@@ -23,7 +23,6 @@
 
 <node name="control_node" pkg="selfie_drone" type="control_node" output="screen">
 	<param name="mode" value="-1" />
-	<param name="offset" value="0.0" />
 </node>
 
 
